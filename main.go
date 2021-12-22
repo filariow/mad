@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"io/ioutil"
 	"log"
 	"os"
@@ -15,6 +16,9 @@ import (
 )
 
 const appID = "com.filariow.mad"
+
+//go:embed views/mad.glade
+var ui string
 
 type app struct {
 	a          *gtk.Application
@@ -80,10 +84,8 @@ func (t *app) run(args []string) int {
 }
 
 func (t *app) activate() {
-	log.Println("activate")
-
 	// builder
-	b, err := gtk.BuilderNewFromFile("views/mad.glade")
+	b, err := gtk.BuilderNewFromString(ui)
 	if err != nil {
 		log.Fatal(err)
 	}
