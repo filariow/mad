@@ -46,25 +46,25 @@ func newApp() *app {
 		log.Fatal(err)
 	}
 
-	l := app{a: a}
+	td, err := ioutil.TempDir("", "mad")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	a.Connect("startup", func() {
-		td, err := ioutil.TempDir("", "mad")
-		if err != nil {
-			log.Fatal(err)
-		}
+	tf, err := ioutil.TempFile(td, "mad.md.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	d := []byte("hello world!")
+	if err = ioutil.WriteFile(tf.Name(), d, 0777); err != nil {
+		log.Fatal(err)
+	}
 
-		tf, err := ioutil.TempFile(td, "mad.md.html")
-		if err != nil {
-			log.Fatal(err)
-		}
-		d := []byte("hello world!")
-		if err = ioutil.WriteFile(tf.Name(), d, 0777); err != nil {
-			log.Fatal(err)
-		}
-		l.tempFolder = td
-		l.f = tf
-	})
+	l := app{
+		a:          a,
+		f:          tf,
+		tempFolder: td,
+	}
 
 	a.Connect("activate", l.activate)
 	return &l
