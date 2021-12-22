@@ -10,6 +10,7 @@ import (
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
+	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/webview/webview"
@@ -25,6 +26,7 @@ type app struct {
 	w          webview.WebView
 	tempFolder string
 	f          *os.File
+	outputFile string
 }
 
 func main() {
@@ -60,10 +62,13 @@ func newApp() *app {
 		log.Fatal(err)
 	}
 
+	of := os.ExpandEnv("${HOME}/mad.md")
+
 	l := app{
 		a:          a,
 		f:          tf,
 		tempFolder: td,
+		outputFile: of,
 	}
 
 	a.Connect("activate", l.activate)
@@ -71,7 +76,9 @@ func newApp() *app {
 }
 
 func (t *app) destroy() {
-	t.w.Destroy()
+	if t.w != nil {
+		t.w.Destroy()
+	}
 
 	err := os.RemoveAll(t.tempFolder)
 	if err != nil {
@@ -148,6 +155,27 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'main_window' is not a window")
 	}
+
+	w.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
+	w.Connect("key_press_event", func(_ *gtk.Window, e *gdk.Event) {
+		s := gdk.EventKeyNewFromEvent(e)
+		k := s.KeyVal()
+
+		c := (s.State() & gdk.CONTROL_MASK)
+		if c == gdk.CONTROL_MASK && k == gdk.KEY_s {
+
+			s, e := tb.GetBounds()
+			d, err := tb.GetText(s, e, false)
+			if err != nil {
+				log.Printf("can not read text from buffer: %s", err)
+				return
+			}
+
+			if err := ioutil.WriteFile(t.outputFile, []byte(d), 0777); err != nil {
+				log.Printf("can not save output file '%s': %s", t.outputFile, err)
+			}
+		}
+	})
 
 	w.Show()
 	t.a.AddWindow(w)
