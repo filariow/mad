@@ -23,6 +23,9 @@ const appID = "com.filariow.mad"
 //go:embed views/mad2.ui
 var ui string
 
+//go:embed front.html
+var front []byte
+
 type app struct {
 	a          *gtk.Application
 	w          webview.WebView
@@ -62,8 +65,8 @@ func newApp() *app {
 	if err != nil {
 		log.Fatal(err)
 	}
-	d := []byte("hello world!")
-	if err = ioutil.WriteFile(tf.Name(), d, 0777); err != nil {
+
+	if err = ioutil.WriteFile(tf.Name(), front, 0777); err != nil {
 		log.Fatal(err)
 	}
 
