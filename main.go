@@ -27,14 +27,15 @@ var ui string
 var front []byte
 
 type app struct {
-	a          *gtk.Application
-	w          webview.WebView
-	tempFolder string
-	f          *os.File
-	outputFile string
-
+	a                    *gtk.Application
+	mainWindow           *gtk.ApplicationWindow
+	w                    webview.WebView
 	notificationLabel    *gtk.Label
 	notificationRevealer *gtk.Revealer
+
+	f          *os.File
+	outputFile string
+	tempFolder string
 }
 
 func main() {
@@ -70,13 +71,10 @@ func newApp() *app {
 		log.Fatal(err)
 	}
 
-	of := os.ExpandEnv("${HOME}/mad.md")
-
 	l := app{
 		a:          a,
 		f:          tf,
 		tempFolder: td,
-		outputFile: of,
 	}
 
 	a.Connect("activate", l.activate)
@@ -148,6 +146,18 @@ func (t *app) activate() {
 
 	wv.Navigate("file://" + t.f.Name())
 
+	// editor
+	eo, err := b.GetObject("editor")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	e, ok := eo.(*gtk.TextView)
+	if !ok {
+		log.Fatal("gtk object with id 'editor' is not a TextView")
+	}
+	e.GrabFocus()
+
 	// textbuffer
 	tbo, err := b.GetObject("textbuffer_editor")
 	if err != nil {
@@ -189,31 +199,78 @@ func (t *app) activate() {
 		log.Fatal("gtk object with id 'main_window' is not a window")
 	}
 
+	t.mainWindow = w
+
 	w.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
 	w.Connect("key_press_event", func(_ *gtk.ApplicationWindow, e *gdk.Event) {
 		s := gdk.EventKeyNewFromEvent(e)
-		k := s.KeyVal()
 
 		c := (s.State() & gdk.CONTROL_MASK)
-		if c == gdk.CONTROL_MASK && k == gdk.KEY_s {
+		if c == gdk.CONTROL_MASK {
+			k := s.KeyVal()
+			switch k {
+			case gdk.KEY_s:
+				s, e := tb.GetBounds()
+				d, err := tb.GetText(s, e, false)
+				if err != nil {
+					t.notify("can not read text from buffer: %s", err)
+					return
+				}
 
-			s, e := tb.GetBounds()
-			d, err := tb.GetText(s, e, false)
-			if err != nil {
-				log.Printf("can not read text from buffer: %s", err)
+				if t.outputFile == "" {
+					t.setOutputFile("Save")
+					if t.outputFile == "" {
+						return
+					}
+				}
+
+				if err := ioutil.WriteFile(t.outputFile, []byte(d), 0777); err != nil {
+					t.notify("can not save output file '%s': %s", t.outputFile, err)
+					return
+				}
+
+				t.notify("saved into '%s'", t.outputFile)
+				return
+
+			case gdk.KEY_o:
+				t.setOutputFile("Open")
+				if t.outputFile == "" {
+					return
+				}
+				s, err := ioutil.ReadFile(t.outputFile)
+				if err != nil {
+					t.notify(err.Error())
+					return
+				}
+
+				tb.SetText(string(s))
+				t.notify("opened file: %s", t.outputFile)
 				return
 			}
-
-			if err := ioutil.WriteFile(t.outputFile, []byte(d), 0777); err != nil {
-				log.Printf("can not save output file '%s': %s", t.outputFile, err)
-			}
-
-			t.notify("saved into '%s'", t.outputFile)
 		}
 	})
 
 	w.Show()
 	t.a.AddWindow(w)
+}
+
+func (a *app) setOutputFile(action string) {
+	f, err := gtk.FileChooserDialogNewWith2Buttons("Output File",
+		a.a.GetActiveWindow(),
+		gtk.FILE_CHOOSER_ACTION_SAVE,
+		"Open",
+		gtk.RESPONSE_ACCEPT,
+		"Cancel",
+		gtk.RESPONSE_CANCEL)
+	if err != nil {
+		log.Println(err)
+	}
+
+	if r := f.Run(); r == gtk.RESPONSE_ACCEPT {
+		a.outputFile = f.GetFilename()
+	}
+
+	f.Destroy()
 }
 
 func (a *app) notify(format string, args ...interface{}) {
