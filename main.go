@@ -177,11 +177,16 @@ func (t *app) activate() {
 			return
 		}
 
-		r := html.NewRenderer(html.RendererOptions{Flags: html.CommonFlags | html.HrefTargetBlank})
-		p := parser.NewWithExtensions(parser.CommonExtensions | parser.AutoHeadingIDs)
-		h := markdown.ToHTML([]byte(te), p, r)
+		var c []byte
+		if te != "" {
+			r := html.NewRenderer(html.RendererOptions{Flags: html.CommonFlags | html.HrefTargetBlank})
+			p := parser.NewWithExtensions(parser.CommonExtensions | parser.AutoHeadingIDs)
+			c = markdown.ToHTML([]byte(te), p, r)
+		} else {
+			c = front
+		}
 
-		if err := ioutil.WriteFile(t.f.Name(), h, 0777); err != nil {
+		if err := ioutil.WriteFile(t.f.Name(), c, 0777); err != nil {
 			log.Printf("can not update content in temp file: %s", err)
 			return
 		}
