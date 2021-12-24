@@ -2,9 +2,11 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/gomarkdown/markdown"
@@ -18,7 +20,7 @@ import (
 
 const appID = "com.filariow.mad"
 
-//go:embed views/mad.glade
+//go:embed views/mad2.ui
 var ui string
 
 type app struct {
@@ -27,6 +29,9 @@ type app struct {
 	tempFolder string
 	f          *os.File
 	outputFile string
+
+	notificationLabel    *gtk.Label
+	notificationRevealer *gtk.Revealer
 }
 
 func main() {
@@ -97,6 +102,31 @@ func (t *app) activate() {
 		log.Fatal(err)
 	}
 
+	// notification
+	onl, err := b.GetObject("notification_label")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	nl, ok := onl.(*gtk.Label)
+	if !ok {
+		log.Fatal("gtk object with id 'notification_label' is not a label")
+	}
+
+	t.notificationLabel = nl
+
+	onr, err := b.GetObject("notification_revealer")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	nr, ok := onr.(*gtk.Revealer)
+	if !ok {
+		log.Fatal("gtk object with id 'notification_revealer' is not a revealer")
+	}
+
+	t.notificationRevealer = nr
+
 	// webview
 	owv, err := b.GetObject("webview_container")
 	if err != nil {
@@ -116,7 +146,7 @@ func (t *app) activate() {
 	wv.Navigate("file://" + t.f.Name())
 
 	// textbuffer
-	tbo, err := b.GetObject("textbuffer")
+	tbo, err := b.GetObject("textbuffer_editor")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -151,13 +181,13 @@ func (t *app) activate() {
 		log.Fatal(err)
 	}
 
-	w, ok := ow.(*gtk.Window)
+	w, ok := ow.(*gtk.ApplicationWindow)
 	if !ok {
 		log.Fatal("gtk object with id 'main_window' is not a window")
 	}
 
 	w.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
-	w.Connect("key_press_event", func(_ *gtk.Window, e *gdk.Event) {
+	w.Connect("key_press_event", func(_ *gtk.ApplicationWindow, e *gdk.Event) {
 		s := gdk.EventKeyNewFromEvent(e)
 		k := s.KeyVal()
 
@@ -174,9 +204,21 @@ func (t *app) activate() {
 			if err := ioutil.WriteFile(t.outputFile, []byte(d), 0777); err != nil {
 				log.Printf("can not save output file '%s': %s", t.outputFile, err)
 			}
+
+			t.notify("saved into '%s'", t.outputFile)
 		}
 	})
 
 	w.Show()
 	t.a.AddWindow(w)
+}
+
+func (a *app) notify(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	a.notificationLabel.SetText(msg)
+	a.notificationRevealer.SetRevealChild(true)
+	go func() {
+		time.Sleep(3 * time.Second)
+		a.notificationRevealer.SetRevealChild(false)
+	}()
 }
