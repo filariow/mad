@@ -37,6 +37,7 @@
                     <property name="can-focus">True</property>
                     <property name="hexpand">True</property>
                     <property name="vexpand">True</property>
+                    <property name="left-margin">5</property>
                     <property name="buffer">textbuffer_editor</property>
                   </object>
                   <packing>
