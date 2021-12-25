@@ -29,13 +29,20 @@ var front []byte
 type app struct {
 	a                    *gtk.Application
 	mainWindow           *gtk.ApplicationWindow
-	w                    webview.WebView
+	editorContainer      *gtk.Viewport
+	editor               *gtk.TextView
+	webviewBox           *gtk.Box
+	webviewRevealer      *gtk.Revealer
+	webviewContainer     *gtk.Viewport
+	webview              webview.WebView
 	notificationLabel    *gtk.Label
 	notificationRevealer *gtk.Revealer
+	horizontal_box       *gtk.Box
 
-	f          *os.File
-	outputFile string
-	tempFolder string
+	f                *os.File
+	outputFile       string
+	tempFolder       string
+	fullScreenEditor bool
 }
 
 func main() {
@@ -72,9 +79,10 @@ func newApp() *app {
 	}
 
 	l := app{
-		a:          a,
-		f:          tf,
-		tempFolder: td,
+		a:                a,
+		f:                tf,
+		tempFolder:       td,
+		fullScreenEditor: true,
 	}
 
 	a.Connect("activate", l.activate)
@@ -82,8 +90,8 @@ func newApp() *app {
 }
 
 func (t *app) destroy() {
-	if t.w != nil {
-		t.w.Destroy()
+	if t.webview != nil {
+		t.webview.Destroy()
 	}
 
 	err := os.RemoveAll(t.tempFolder)
@@ -129,24 +137,70 @@ func (t *app) activate() {
 	t.notificationRevealer = nr
 
 	// webview
+	owb, err := b.GetObject("webview_box")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	wb, ok := owb.(*gtk.Box)
+	if !ok {
+		log.Fatal("gtk object with id 'webview_box' is not a Box")
+	}
+	t.webviewBox = wb
+
+	owr, err := b.GetObject("webview_revealer")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	wr, ok := owr.(*gtk.Revealer)
+	if !ok {
+		log.Fatal("gtk object with id 'webview_revealer' is not a Revealer")
+	}
+	t.webviewRevealer = wr
+
 	owv, err := b.GetObject("webview_container")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	f, ok := owv.(*gtk.ScrolledWindow)
+	f, ok := owv.(*gtk.Viewport)
 	if !ok {
 		log.Fatal("gtk object with id 'webview_container' is not a ScrolledWindow")
 	}
 
 	fw := f.ToWidget().GObject
 	p := unsafe.Pointer(fw)
-	wv := webview.NewWindow(true, p)
-	t.w = wv
 
-	wv.Navigate("file://" + t.f.Name())
+	t.webviewContainer = f
+	t.webview = webview.NewWindow(true, p)
+
+	t.webview.Navigate("file://" + t.f.Name())
+
+	// horizontal box
+	hbo, err := b.GetObject("horizontal_box")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hb, ok := hbo.(*gtk.Box)
+	if !ok {
+		log.Fatal("gtk object with id 'horizontal_box' is not a Box")
+	}
+	t.horizontal_box = hb
 
 	// editor
+	eco, err := b.GetObject("editor_container")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ec, ok := eco.(*gtk.Viewport)
+	if !ok {
+		log.Fatalf("gtk objecgt with id 'editor_container' is not a ScrolledWindow")
+	}
+	t.editorContainer = ec
+
 	eo, err := b.GetObject("editor")
 	if err != nil {
 		log.Fatal(err)
@@ -156,6 +210,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'editor' is not a TextView")
 	}
+	t.editor = e
 	e.GrabFocus()
 
 	// textbuffer
@@ -190,7 +245,7 @@ func (t *app) activate() {
 			log.Printf("can not update content in temp file: %s", err)
 			return
 		}
-		wv.Navigate("file://" + t.f.Name())
+		t.webview.Navigate("file://" + t.f.Name())
 	})
 
 	// Window
@@ -251,12 +306,37 @@ func (t *app) activate() {
 				tb.SetText(string(s))
 				t.notify("opened file: %s", t.outputFile)
 				return
+
+			case gdk.KEY_p:
+				t.toogleView()
+				return
 			}
 		}
 	})
 
 	w.Show()
 	t.a.AddWindow(w)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		t.webviewRevealer.SetRevealChild(true)
+	}()
+}
+
+func (a *app) toogleView() {
+	r := !a.webviewRevealer.GetChildRevealed()
+	if r {
+		a.webviewBox.SetVisible(r)
+	}
+	a.webviewRevealer.SetRevealChild(r)
+
+	if !r {
+		go func() {
+			d := a.webviewRevealer.GetTransitionDuration()
+			time.Sleep(time.Duration(d) * time.Millisecond)
+			a.webviewBox.SetVisible(r)
+		}()
+	}
 }
 
 func (a *app) setOutputFile(action string) {
