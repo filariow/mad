@@ -43,6 +43,7 @@ type app struct {
 	outputFile       string
 	tempFolder       string
 	fullScreenEditor bool
+	closeRequested   bool
 }
 
 func main() {
@@ -54,7 +55,6 @@ func run() int {
 	gtk.Init(nil)
 
 	a := newApp()
-	defer a.destroy()
 	return a.run(os.Args)
 }
 
@@ -261,6 +261,8 @@ func (t *app) activate() {
 
 	t.mainWindow = w
 
+	w.Connect("destroy", t.destroy)
+
 	w.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
 	w.Connect("key_press_event", func(_ *gtk.ApplicationWindow, e *gdk.Event) {
 		s := gdk.EventKeyNewFromEvent(e)
@@ -309,6 +311,13 @@ func (t *app) activate() {
 
 			case gdk.KEY_p:
 				t.toogleView()
+				return
+
+			case gdk.KEY_q:
+				if !t.closeRequested {
+					t.closeRequested = true
+					t.mainWindow.Destroy()
+				}
 				return
 			}
 		}
