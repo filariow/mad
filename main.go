@@ -38,12 +38,14 @@ type app struct {
 	notificationLabel    *gtk.Label
 	notificationRevealer *gtk.Revealer
 	horizontal_box       *gtk.Box
+	cssProvider          *gtk.CssProvider
 
 	f                *os.File
 	outputFile       string
 	tempFolder       string
 	fullScreenEditor bool
 	closeRequested   bool
+	fontSize         int
 }
 
 func main() {
@@ -83,6 +85,7 @@ func newApp() *app {
 		f:                tf,
 		tempFolder:       td,
 		fullScreenEditor: true,
+		fontSize:         12,
 	}
 
 	a.Connect("activate", l.activate)
@@ -260,6 +263,19 @@ func (t *app) activate() {
 	}
 
 	t.mainWindow = w
+	cssp, err := gtk.CssProviderNew()
+	if err != nil {
+		t.notify(err.Error())
+		return
+	}
+	t.cssProvider = cssp
+
+	s, err := t.mainWindow.ToWidget().GetScreen()
+	if err != nil {
+		log.Fatalf("can not retrieve the Screen for main window: %s", err)
+	}
+	gtk.AddProviderForScreen(s, cssp, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	t.setFont(12)
 
 	w.Connect("destroy", t.destroy)
 
@@ -319,6 +335,14 @@ func (t *app) activate() {
 					t.mainWindow.Destroy()
 				}
 				return
+			case gdk.KEY_plus:
+				fallthrough
+			case gdk.KEY_equal:
+				t.applyDeltaToFont(1)
+				return
+			case gdk.KEY_minus:
+				t.applyDeltaToFont(-1)
+				return
 			}
 		}
 	})
@@ -330,6 +354,27 @@ func (t *app) activate() {
 		time.Sleep(500 * time.Millisecond)
 		t.webviewRevealer.SetRevealChild(true)
 	}()
+}
+
+func (a *app) applyDeltaToFont(delta int) {
+	s := a.fontSize + delta
+	if err := a.setFont(s); err != nil {
+		a.notify(err.Error())
+	}
+}
+
+func (a *app) setFont(size int) error {
+	if size <= 0 {
+		return fmt.Errorf("font size must be positive, invalid value %d", size)
+	}
+
+	a.fontSize = size
+	css := fmt.Sprintf("textview { font-size: %dpt; }", size)
+	if err := a.cssProvider.LoadFromData(css); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (a *app) toogleView() {
