@@ -39,6 +39,7 @@ type app struct {
 	notificationRevealer *gtk.Revealer
 	horizontal_box       *gtk.Box
 	cssProvider          *gtk.CssProvider
+	textBuffer           *gtk.TextBuffer
 
 	f                *os.File
 	outputFile       string
@@ -92,22 +93,145 @@ func newApp() *app {
 	return &l
 }
 
-func (t *app) destroy() {
-	if t.webview != nil {
-		t.webview.Destroy()
+func (a *app) destroy() {
+	if a.webview != nil {
+		a.webview.Destroy()
 	}
 
-	err := os.RemoveAll(t.tempFolder)
+	err := os.RemoveAll(a.tempFolder)
 	if err != nil {
 		log.Println(err)
 	}
 }
 
-func (t *app) run(args []string) int {
-	return t.a.Run(args)
+func (a *app) run(args []string) int {
+	return a.a.Run(args)
 }
 
-func (t *app) activate() {
+func (a *app) activate() {
+	a.loadUI()
+
+	a.webview.Navigate("file://" + a.f.Name())
+	a.editor.GrabFocus()
+
+	a.textBuffer.Connect("changed", func() {
+		s, e := a.textBuffer.GetBounds()
+		te, err := a.textBuffer.GetText(s, e, false)
+		if err != nil {
+			log.Printf("can not retrieve text from textbuffer: %s", err)
+			return
+		}
+
+		var c []byte
+		if te != "" {
+			r := html.NewRenderer(html.RendererOptions{Flags: html.CommonFlags | html.HrefTargetBlank})
+			p := parser.NewWithExtensions(parser.CommonExtensions | parser.AutoHeadingIDs)
+			c = markdown.ToHTML([]byte(te), p, r)
+		} else {
+			c = front
+		}
+
+		if err := ioutil.WriteFile(a.f.Name(), c, 0777); err != nil {
+			log.Printf("can not update content in temp file: %s", err)
+			return
+		}
+		a.webview.Navigate("file://" + a.f.Name())
+	})
+
+	cssp, err := gtk.CssProviderNew()
+	if err != nil {
+		a.notify(err.Error())
+		return
+	}
+	a.cssProvider = cssp
+
+	s, err := a.mainWindow.ToWidget().GetScreen()
+	if err != nil {
+		log.Fatalf("can not retrieve the Screen for main window: %s", err)
+	}
+	gtk.AddProviderForScreen(s, cssp, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	a.setFont(12)
+
+	a.mainWindow.Connect("destroy", a.destroy)
+
+	a.mainWindow.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
+	a.mainWindow.Connect("key_press_event", func(_ *gtk.ApplicationWindow, e *gdk.Event) {
+		s := gdk.EventKeyNewFromEvent(e)
+
+		c := (s.State() & gdk.CONTROL_MASK)
+		if c == gdk.CONTROL_MASK {
+			k := s.KeyVal()
+			switch k {
+			case gdk.KEY_s:
+				s, e := a.textBuffer.GetBounds()
+				d, err := a.textBuffer.GetText(s, e, false)
+				if err != nil {
+					a.notify("can not read text from buffer: %s", err)
+					return
+				}
+
+				if a.outputFile == "" {
+					a.setOutputFile("Save")
+					if a.outputFile == "" {
+						return
+					}
+				}
+
+				if err := ioutil.WriteFile(a.outputFile, []byte(d), 0777); err != nil {
+					a.notify("can not save output file '%s': %s", a.outputFile, err)
+					return
+				}
+
+				a.notify("saved into '%s'", a.outputFile)
+				return
+
+			case gdk.KEY_o:
+				a.setOutputFile("Open")
+				if a.outputFile == "" {
+					return
+				}
+				s, err := ioutil.ReadFile(a.outputFile)
+				if err != nil {
+					a.notify(err.Error())
+					return
+				}
+
+				a.textBuffer.SetText(string(s))
+				a.notify("opened file: %s", a.outputFile)
+				return
+
+			case gdk.KEY_p:
+				a.toogleView()
+				return
+
+			case gdk.KEY_q:
+				if !a.closeRequested {
+					a.closeRequested = true
+					a.mainWindow.Destroy()
+				}
+				return
+			case gdk.KEY_plus:
+				fallthrough
+			case gdk.KEY_equal:
+				a.applyDeltaToFont(1)
+				return
+			case gdk.KEY_minus:
+				a.applyDeltaToFont(-1)
+				return
+			}
+		}
+	})
+
+	a.mainWindow.Show()
+	a.a.AddWindow(a.mainWindow)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		a.webviewRevealer.SetRevealChild(true)
+	}()
+}
+
+func (a *app) loadUI() {
 	// builder
 	b, err := gtk.BuilderNewFromString(ui)
 	if err != nil {
@@ -125,7 +249,7 @@ func (t *app) activate() {
 		log.Fatal("gtk object with id 'notification_label' is not a label")
 	}
 
-	t.notificationLabel = nl
+	a.notificationLabel = nl
 
 	onr, err := b.GetObject("notification_revealer")
 	if err != nil {
@@ -137,7 +261,7 @@ func (t *app) activate() {
 		log.Fatal("gtk object with id 'notification_revealer' is not a revealer")
 	}
 
-	t.notificationRevealer = nr
+	a.notificationRevealer = nr
 
 	// webview
 	owb, err := b.GetObject("webview_box")
@@ -149,7 +273,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'webview_box' is not a Box")
 	}
-	t.webviewBox = wb
+	a.webviewBox = wb
 
 	owr, err := b.GetObject("webview_revealer")
 	if err != nil {
@@ -160,7 +284,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'webview_revealer' is not a Revealer")
 	}
-	t.webviewRevealer = wr
+	a.webviewRevealer = wr
 
 	owv, err := b.GetObject("webview_container")
 	if err != nil {
@@ -175,10 +299,8 @@ func (t *app) activate() {
 	fw := f.ToWidget().GObject
 	p := unsafe.Pointer(fw)
 
-	t.webviewContainer = f
-	t.webview = webview.NewWindow(true, p)
-
-	t.webview.Navigate("file://" + t.f.Name())
+	a.webviewContainer = f
+	a.webview = webview.NewWindow(true, p)
 
 	// horizontal box
 	hbo, err := b.GetObject("horizontal_box")
@@ -190,7 +312,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'horizontal_box' is not a Box")
 	}
-	t.horizontal_box = hb
+	a.horizontal_box = hb
 
 	// editor
 	eco, err := b.GetObject("editor_container")
@@ -200,9 +322,9 @@ func (t *app) activate() {
 
 	ec, ok := eco.(*gtk.Viewport)
 	if !ok {
-		log.Fatalf("gtk objecgt with id 'editor_container' is not a ScrolledWindow")
+		log.Fatalf("gtk object with id 'editor_container' is not a ScrolledWindow")
 	}
-	t.editorContainer = ec
+	a.editorContainer = ec
 
 	eo, err := b.GetObject("editor")
 	if err != nil {
@@ -213,8 +335,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'editor' is not a TextView")
 	}
-	t.editor = e
-	e.GrabFocus()
+	a.editor = e
 
 	// textbuffer
 	tbo, err := b.GetObject("textbuffer_editor")
@@ -226,30 +347,7 @@ func (t *app) activate() {
 	if !ok {
 		log.Fatal("gtk object with id 'textbuffer' is not a TextBuffer")
 	}
-
-	tb.Connect("changed", func() {
-		s, e := tb.GetBounds()
-		te, err := tb.GetText(s, e, false)
-		if err != nil {
-			log.Printf("can not retrieve text from textbuffer: %s", err)
-			return
-		}
-
-		var c []byte
-		if te != "" {
-			r := html.NewRenderer(html.RendererOptions{Flags: html.CommonFlags | html.HrefTargetBlank})
-			p := parser.NewWithExtensions(parser.CommonExtensions | parser.AutoHeadingIDs)
-			c = markdown.ToHTML([]byte(te), p, r)
-		} else {
-			c = front
-		}
-
-		if err := ioutil.WriteFile(t.f.Name(), c, 0777); err != nil {
-			log.Printf("can not update content in temp file: %s", err)
-			return
-		}
-		t.webview.Navigate("file://" + t.f.Name())
-	})
+	a.textBuffer = tb
 
 	// Window
 	ow, err := b.GetObject("main_window")
@@ -262,98 +360,7 @@ func (t *app) activate() {
 		log.Fatal("gtk object with id 'main_window' is not a window")
 	}
 
-	t.mainWindow = w
-	cssp, err := gtk.CssProviderNew()
-	if err != nil {
-		t.notify(err.Error())
-		return
-	}
-	t.cssProvider = cssp
-
-	s, err := t.mainWindow.ToWidget().GetScreen()
-	if err != nil {
-		log.Fatalf("can not retrieve the Screen for main window: %s", err)
-	}
-	gtk.AddProviderForScreen(s, cssp, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-	t.setFont(12)
-
-	w.Connect("destroy", t.destroy)
-
-	w.ToWidget().AddEvents(int(gdk.KEY_PRESS_MASK))
-	w.Connect("key_press_event", func(_ *gtk.ApplicationWindow, e *gdk.Event) {
-		s := gdk.EventKeyNewFromEvent(e)
-
-		c := (s.State() & gdk.CONTROL_MASK)
-		if c == gdk.CONTROL_MASK {
-			k := s.KeyVal()
-			switch k {
-			case gdk.KEY_s:
-				s, e := tb.GetBounds()
-				d, err := tb.GetText(s, e, false)
-				if err != nil {
-					t.notify("can not read text from buffer: %s", err)
-					return
-				}
-
-				if t.outputFile == "" {
-					t.setOutputFile("Save")
-					if t.outputFile == "" {
-						return
-					}
-				}
-
-				if err := ioutil.WriteFile(t.outputFile, []byte(d), 0777); err != nil {
-					t.notify("can not save output file '%s': %s", t.outputFile, err)
-					return
-				}
-
-				t.notify("saved into '%s'", t.outputFile)
-				return
-
-			case gdk.KEY_o:
-				t.setOutputFile("Open")
-				if t.outputFile == "" {
-					return
-				}
-				s, err := ioutil.ReadFile(t.outputFile)
-				if err != nil {
-					t.notify(err.Error())
-					return
-				}
-
-				tb.SetText(string(s))
-				t.notify("opened file: %s", t.outputFile)
-				return
-
-			case gdk.KEY_p:
-				t.toogleView()
-				return
-
-			case gdk.KEY_q:
-				if !t.closeRequested {
-					t.closeRequested = true
-					t.mainWindow.Destroy()
-				}
-				return
-			case gdk.KEY_plus:
-				fallthrough
-			case gdk.KEY_equal:
-				t.applyDeltaToFont(1)
-				return
-			case gdk.KEY_minus:
-				t.applyDeltaToFont(-1)
-				return
-			}
-		}
-	})
-
-	w.Show()
-	t.a.AddWindow(w)
-
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		t.webviewRevealer.SetRevealChild(true)
-	}()
+	a.mainWindow = w
 }
 
 func (a *app) applyDeltaToFont(delta int) {
