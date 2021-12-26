@@ -23,7 +23,7 @@ const appID = "com.filariow.mad"
 //go:embed views/mad2.ui
 var ui string
 
-//go:embed front.html
+//go:embed static/front.html
 var front []byte
 
 type app struct {
