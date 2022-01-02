@@ -1,4 +1,9 @@
 FROM golang:1.17.5-bullseye as builder
+ARG GOOS=linux
+ARG GOARCH=amd64
+
+ENV GOOS=$GOOS
+ENV GOARCH=$GOARCH
 
 WORKDIR /tmp/setup
 
