@@ -9,6 +9,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/filariow/mad/internal/history"
 	"github.com/filariow/mad/static"
 	"github.com/filariow/mad/views"
 	"github.com/gomarkdown/markdown"
@@ -37,6 +38,8 @@ type app struct {
 	cssProvider          *gtk.CssProvider
 	textBuffer           *gtk.TextBuffer
 
+	history          history.History
+	trapTextChanges  bool
 	f                *os.File
 	outputFile       string
 	tempFolder       string
@@ -71,6 +74,8 @@ func New() *app {
 		tempFolder:       td,
 		fullScreenEditor: true,
 		fontSize:         12,
+		history:          history.NewUnbounded(),
+		trapTextChanges:  true,
 	}
 
 	a.Connect("activate", l.activate)
@@ -120,6 +125,23 @@ func (a *app) activate() {
 			return
 		}
 		a.webview.Navigate("file://" + a.f.Name())
+	})
+
+	a.textBuffer.Connect("insert-text", func(_ *gtk.TextBuffer, location *gtk.TextIter, text string, length int) {
+		if !a.trapTextChanges {
+			return
+		}
+		r := history.NewInsertRecord(text, location.GetOffset(), length)
+		a.history.Add(r)
+	})
+
+	a.textBuffer.Connect("delete-range", func(_ *gtk.TextBuffer, start, end *gtk.TextIter) {
+		if !a.trapTextChanges {
+			return
+		}
+		t := start.GetSlice(end)
+		r := history.NewDeleteRecord(t, start.GetOffset(), end.GetOffset())
+		a.history.Add(r)
 	})
 
 	cssp, err := gtk.CssProviderNew()
@@ -202,6 +224,20 @@ func (a *app) activate() {
 			case gdk.KEY_minus:
 				a.applyDeltaToFont(-1)
 				return
+			case gdk.KEY_z:
+				fallthrough
+			case gdk.KEY_Y:
+				a.historyApply(func(t string) *string {
+					return a.history.Undo(t)
+				})
+				return
+			case gdk.KEY_y:
+				fallthrough
+			case gdk.KEY_Z:
+				a.historyApply(func(t string) *string {
+					return a.history.Do(t)
+				})
+				return
 			}
 		}
 	})
@@ -213,6 +249,24 @@ func (a *app) activate() {
 		time.Sleep(500 * time.Millisecond)
 		a.webviewRevealer.SetRevealChild(true)
 	}()
+}
+
+func (a *app) historyApply(f func(string) *string) {
+	a.trapTextChanges = false
+	defer func() {
+		a.trapTextChanges = true
+	}()
+
+	s, e := a.textBuffer.GetBounds()
+	t, err := a.textBuffer.GetText(s, e, false)
+	if err != nil {
+		log.Printf("can not retrieve textbuffer text: %s", err)
+		return
+	}
+
+	if tu := f(t); tu != nil {
+		a.textBuffer.SetText(*tu)
+	}
 }
 
 func (a *app) loadUI() {
