@@ -238,6 +238,11 @@ func (a *app) activate() {
 					return a.history.Do(t)
 				})
 				return
+			case gdk.KEY_b:
+				fallthrough
+			case gdk.KEY_B:
+				a.bolderize()
+				return
 			}
 		}
 	})
@@ -249,6 +254,92 @@ func (a *app) activate() {
 		time.Sleep(500 * time.Millisecond)
 		a.webviewRevealer.SetRevealChild(true)
 	}()
+}
+
+func (a *app) bolderize() {
+	s, e, ok := a.textBuffer.GetSelectionBounds()
+	if ok {
+		a.bolderizeInSelection(s, e)
+		return
+	}
+	a.bolderizeAtCursor()
+}
+
+func (a *app) bolderizeInSelection(s, e *gtk.TextIter) {
+	os := s.GetOffset()
+	osce := a.textBuffer.GetIterAtOffset(os + 2)
+	st, err := a.textBuffer.GetText(s, osce, false)
+	if err != nil {
+		log.Printf("can not read first two runes from selection: %s", err)
+		return
+	}
+
+	if st == "**" {
+		oe := e.GetOffset()
+		oecs := a.textBuffer.GetIterAtOffset(oe - 2)
+		et, err := a.textBuffer.GetText(oecs, e, false)
+		if err != nil {
+			log.Printf("can not read last two runes from selection: %s", err)
+			return
+		}
+
+		if et == "**" {
+			mss := a.textBuffer.CreateMark("bolding-start-start", s, false)
+			defer a.textBuffer.DeleteMark(mss)
+			mse := a.textBuffer.CreateMark("bolding-start-end", osce, false)
+			defer a.textBuffer.DeleteMark(mse)
+			mes := a.textBuffer.CreateMark("bolding-end-start", oecs, false)
+			defer a.textBuffer.DeleteMark(mes)
+			mee := a.textBuffer.CreateMark("bolding-end-end", e, false)
+			defer a.textBuffer.DeleteMark(mee)
+			a.textBuffer.Delete(a.textBuffer.GetIterAtMark(mss), a.textBuffer.GetIterAtMark(mse))
+			a.textBuffer.Delete(a.textBuffer.GetIterAtMark(mes), a.textBuffer.GetIterAtMark(mee))
+			return
+		}
+	}
+
+	ms := a.textBuffer.CreateMark("bolding-start", s, false)
+	defer a.textBuffer.DeleteMark(ms)
+	me := a.textBuffer.CreateMark("bolding-end", e, false)
+	defer a.textBuffer.DeleteMark(me)
+	ims := a.textBuffer.GetIterAtMark(ms)
+	a.textBuffer.Insert(ims, "**")
+	ime := a.textBuffer.GetIterAtMark(me)
+	a.textBuffer.Insert(ime, "**")
+
+	ims = a.textBuffer.GetIterAtMark(ms)
+	nims := a.textBuffer.GetIterAtOffset(ims.GetOffset() - 2)
+	a.textBuffer.SelectRange(nims, ime)
+}
+
+func (a *app) bolderizeAtCursor() {
+	i := a.textBuffer.GetIterAtMark(a.textBuffer.GetInsert()).GetOffset()
+	te := a.textBuffer.GetEndIter().GetOffset()
+	if i >= 2 && i+2 <= te {
+		s := a.textBuffer.GetIterAtOffset(i - 2)
+		e := a.textBuffer.GetIterAtOffset(i + 2)
+
+		lt, err := a.textBuffer.GetText(s, e, false)
+		if err != nil {
+			log.Printf("can not retrieve text near selection")
+			return
+		}
+
+		if lt == "****" {
+			a.textBuffer.Delete(s, e)
+			return
+		}
+	}
+	a.textBuffer.InsertAtCursor("****")
+	ic := a.textBuffer.GetIterAtOffset(i + 2)
+	a.textBuffer.PlaceCursor(ic)
+
+}
+
+func (a *app) GetTextMarkdown() (string, error) {
+	s, e := a.textBuffer.GetBounds()
+	t, err := a.textBuffer.GetText(s, e, false)
+	return t, err
 }
 
 func (a *app) historyApply(f func(string) *string) {
