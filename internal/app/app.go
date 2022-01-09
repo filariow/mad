@@ -248,6 +248,9 @@ func (a *app) activate() {
 			case gdk.KEY_B:
 				a.bolderize()
 				return
+			case gdk.KEY_t:
+				a.addTable()
+				return
 			}
 		}
 	})
@@ -259,6 +262,15 @@ func (a *app) activate() {
 		time.Sleep(500 * time.Millisecond)
 		a.webviewRevealer.SetRevealChild(true)
 	}()
+}
+
+func (a *app) addTable() {
+	t := `| header_1 | header_2 | header_3 |
+| ---              | ---               | ---              |
+| 1,1               | 1,2               | 1,3              |
+
+`
+	a.textBuffer.InsertAtCursor(t)
 }
 
 func (a *app) bolderize() {
