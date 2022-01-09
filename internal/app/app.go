@@ -238,6 +238,11 @@ func (a *app) activate() {
 					return a.history.Do(t)
 				})
 				return
+			case gdk.KEY_i:
+				fallthrough
+			case gdk.KEY_I:
+				a.italic()
+				return
 			case gdk.KEY_b:
 				fallthrough
 			case gdk.KEY_B:
@@ -257,40 +262,51 @@ func (a *app) activate() {
 }
 
 func (a *app) bolderize() {
+	ba := "**"
 	s, e, ok := a.textBuffer.GetSelectionBounds()
 	if ok {
-		a.bolderizeInSelection(s, e)
+		a.wrapSelection(s, e, ba, ba)
 		return
 	}
-	a.bolderizeAtCursor()
+	a.wrapAtCursor(ba, ba)
 }
 
-func (a *app) bolderizeInSelection(s, e *gtk.TextIter) {
+func (a *app) italic() {
+	ia := "*"
+	s, e, ok := a.textBuffer.GetSelectionBounds()
+	if ok {
+		a.wrapSelection(s, e, ia, ia)
+		return
+	}
+	a.wrapAtCursor(ia, ia)
+}
+
+func (a *app) wrapSelection(s, e *gtk.TextIter, left, right string) {
 	os := s.GetOffset()
-	osce := a.textBuffer.GetIterAtOffset(os + 2)
+	osce := a.textBuffer.GetIterAtOffset(os + len(left))
 	st, err := a.textBuffer.GetText(s, osce, false)
 	if err != nil {
 		log.Printf("can not read first two runes from selection: %s", err)
 		return
 	}
 
-	if st == "**" {
+	if st == left {
 		oe := e.GetOffset()
-		oecs := a.textBuffer.GetIterAtOffset(oe - 2)
+		oecs := a.textBuffer.GetIterAtOffset(oe - len(right))
 		et, err := a.textBuffer.GetText(oecs, e, false)
 		if err != nil {
 			log.Printf("can not read last two runes from selection: %s", err)
 			return
 		}
 
-		if et == "**" {
-			mss := a.textBuffer.CreateMark("bolding-start-start", s, false)
+		if et == right {
+			mss := a.textBuffer.CreateMark("wrapping-start-start", s, false)
 			defer a.textBuffer.DeleteMark(mss)
-			mse := a.textBuffer.CreateMark("bolding-start-end", osce, false)
+			mse := a.textBuffer.CreateMark("wrapping-start-end", osce, false)
 			defer a.textBuffer.DeleteMark(mse)
-			mes := a.textBuffer.CreateMark("bolding-end-start", oecs, false)
+			mes := a.textBuffer.CreateMark("wrapping-end-start", oecs, false)
 			defer a.textBuffer.DeleteMark(mes)
-			mee := a.textBuffer.CreateMark("bolding-end-end", e, false)
+			mee := a.textBuffer.CreateMark("wrapping-end-end", e, false)
 			defer a.textBuffer.DeleteMark(mee)
 			a.textBuffer.Delete(a.textBuffer.GetIterAtMark(mss), a.textBuffer.GetIterAtMark(mse))
 			a.textBuffer.Delete(a.textBuffer.GetIterAtMark(mes), a.textBuffer.GetIterAtMark(mee))
@@ -298,26 +314,28 @@ func (a *app) bolderizeInSelection(s, e *gtk.TextIter) {
 		}
 	}
 
-	ms := a.textBuffer.CreateMark("bolding-start", s, false)
+	ms := a.textBuffer.CreateMark("wrapping-start", s, false)
 	defer a.textBuffer.DeleteMark(ms)
-	me := a.textBuffer.CreateMark("bolding-end", e, false)
+	me := a.textBuffer.CreateMark("wrapping-end", e, false)
 	defer a.textBuffer.DeleteMark(me)
 	ims := a.textBuffer.GetIterAtMark(ms)
-	a.textBuffer.Insert(ims, "**")
+	a.textBuffer.Insert(ims, left)
 	ime := a.textBuffer.GetIterAtMark(me)
-	a.textBuffer.Insert(ime, "**")
+	a.textBuffer.Insert(ime, right)
 
 	ims = a.textBuffer.GetIterAtMark(ms)
-	nims := a.textBuffer.GetIterAtOffset(ims.GetOffset() - 2)
+	nims := a.textBuffer.GetIterAtOffset(ims.GetOffset() - len(left))
 	a.textBuffer.SelectRange(nims, ime)
 }
 
-func (a *app) bolderizeAtCursor() {
+func (a *app) wrapAtCursor(left, right string) {
+	t := left + right
 	i := a.textBuffer.GetIterAtMark(a.textBuffer.GetInsert()).GetOffset()
 	te := a.textBuffer.GetEndIter().GetOffset()
-	if i >= 2 && i+2 <= te {
-		s := a.textBuffer.GetIterAtOffset(i - 2)
-		e := a.textBuffer.GetIterAtOffset(i + 2)
+	ll, lr := len(left), len(right)
+	if i >= ll && i+lr <= te {
+		s := a.textBuffer.GetIterAtOffset(i - ll)
+		e := a.textBuffer.GetIterAtOffset(i + lr)
 
 		lt, err := a.textBuffer.GetText(s, e, false)
 		if err != nil {
@@ -325,13 +343,13 @@ func (a *app) bolderizeAtCursor() {
 			return
 		}
 
-		if lt == "****" {
+		if lt == t {
 			a.textBuffer.Delete(s, e)
 			return
 		}
 	}
-	a.textBuffer.InsertAtCursor("****")
-	ic := a.textBuffer.GetIterAtOffset(i + 2)
+	a.textBuffer.InsertAtCursor(t)
+	ic := a.textBuffer.GetIterAtOffset(i + ll)
 	a.textBuffer.PlaceCursor(ic)
 
 }
