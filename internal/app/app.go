@@ -322,13 +322,12 @@ func (a *app) addTable() {
 	for c := 1; c <= cc; c++ {
 		t += " ---          |"
 	}
-	t += "\n|"
 
 	for r := 1; r <= rr; r++ {
+		t += "\n|"
 		for c := 1; c <= cc; c++ {
 			t += " cell        |"
 		}
-		t += "\n|"
 	}
 	t += "\n"
 
