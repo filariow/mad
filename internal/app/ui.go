@@ -78,7 +78,7 @@ func (a *app) loadUI() {
 	p := unsafe.Pointer(fw)
 
 	a.webviewContainer = f
-	a.webview = webview.NewWindow(true, p)
+	a.webview = webview.NewWindow(false, p)
 
 	// horizontal box
 	hbo, err := b.GetObject("horizontal_box")

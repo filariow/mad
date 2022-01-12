@@ -15,9 +15,7 @@ import (
 	"github.com/webview/webview"
 )
 
-const (
-	appID = "com.filariow.mad"
-)
+const appID = "com.filariow.mad"
 
 type app struct {
 	a                    *gtk.Application
@@ -47,7 +45,7 @@ type app struct {
 }
 
 func New() *app {
-	a, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
+	a, err := gtk.ApplicationNew(appID, glib.APPLICATION_NON_UNIQUE)
 	if err != nil {
 		log.Fatal(err)
 	}
